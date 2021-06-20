@@ -7,8 +7,9 @@ function analizar(): void {
     let auxResultado;
     try{
         // @ts-ignore
-        auxResultado = AnalyzerXML.parse(texto.value);
+        auxResultado = AnalyzerXMLDescendente.parse(texto.value);
     } catch (err) {
+        console.log(err);
         errores.agregarError("Irrecuperable","Error irecuperable (Posiblmente no cerro alguna etiqueta)",0,0);
         auxResultado = {nodos:[new Nodo("",    [],    [], Type.COMMENT,     "",    0,             0)]
         ,raizCST:new NodoPadre(0,"error","Error sin recuperacion","",[])
