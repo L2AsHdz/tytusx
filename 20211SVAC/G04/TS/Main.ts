@@ -8,6 +8,7 @@ function analizar(): void {
     try{
         // @ts-ignore
         auxResultado = AnalyzerXMLDescendente.parse(texto.value);
+        console.log(auxResultado);
     } catch (err) {
         console.log(err);
         errores.agregarError("Irrecuperable","Error irecuperable (Posiblmente no cerro alguna etiqueta)",0,0);

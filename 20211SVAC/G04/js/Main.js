@@ -8,6 +8,7 @@ function analizar() {
     try {
         // @ts-ignore
         auxResultado = AnalyzerXMLDescendente.parse(texto.value);
+        console.log(auxResultado);
     }
     catch (err) {
         console.log(err);

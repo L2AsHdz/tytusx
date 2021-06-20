@@ -1,29 +1,18 @@
 
 %lex
 
-%x textTag
-%x comment
+ID [A-ZÑa-zñ][A-ZÑa-zñ0-9_-]*
 
 %%
+"<!--".*"-->"                    {console.log("Comentario "+yytext);}
+([^"<>"]*)/("</"{ID}">")\b      {console.log("texto etiqueta "+yytext);return 'textTag';}
+"</"                            {return 'cierreEtiqueta';}
 \s+                             //Ignorar espacios
-">"                             {this.begin('textTag'); return 'greater_than';}
-<textTag>"<"                    {this.begin('INITIAL'); return 'less_than';}
-<textTag>\s+                    //ignorar
-<textTag>"&lt;"                 {return "lt";}
-<textTag>"&gt;"                 {return "gt";}
-<textTag>"&amp;"                {return "amp";}
-<textTag>"&apos;"               {return "apos";}
-<textTag>"&quot;"               {return "quot";}
-<textTag>[^<&]+                 {return 'textTag';}
-<textTag><<EOF>>                {return 'EOF';}
-
-"!"                             {this.begin('comment'); return 'exclamation_mark';}
-<comment>">"                    {this.begin('INITIAL'); return 'greater_than';}
-<comment>\s+                    /*Ignorar*/
-<comment>"--"                   {return 'doble_guion';}
-<comment>[^-]+                  {return 'textComment';}
-
+">"                             {return 'greater_than';}
 "<"                             {return 'less_than';}
+"?"                             {return 'question_mark';}
+"="                             {return 'assign';}
+"/"                             {return 'slash';}
 
 "xml"                           {return 'xml';}
 "version"                       {return 'version';}
@@ -33,10 +22,7 @@
 "\"ISO-8859-1\""                    {return 'iso'}
 
 
-"<"                             {return 'less_than';}
-"?"                             {return 'question_mark';}
-"="                             {return 'assign';}
-"/"                             {return 'slash';}
+
 
 (["][^"\""]+["])|(['][^']+['])  {return 'value';}
 \w+                             {return 'identifier';}
@@ -55,6 +41,8 @@
     function getId(){        
         return idNodos++;
     }
+    let atributos = [];
+    let nodos = [];
 %}
 %start START
 
@@ -85,22 +73,16 @@ START
 
 XML_STRUCTURE
     : PROLOG NODES              {
+        nodos = [];
         $$ = {nodos:$2.nodos
         ,hijos:[
                 new NodoPadre(getId(),"PROLOG","XML_STRUCTURE -> PROLOG NODES","XML_STRUCTURE.info = [PROLOG.valor,NODES.listado]",$1.hijos),
                 new NodoPadre(getId(),"NODES","","",$2.hijos)
             ]
         };
-        }
-    | COMMENT PROLOG NODES      {
-        $$ = {nodos:$3.nodos
-        ,hijos:[
-                new NodoPadre(getId(),"PROLOG","XML_STRUCTURE -> PROLOG NODES","XML_STRUCTURE.info = [PROLOG.valor,NODES.listado]",$2.hijos),
-                new NodoPadre(getId(),"NODES","","",$3.hijos)
-            ]
-        };
-        }
-    | error greater_than TEXTTAG NODES {
+        }    
+    | error greater_than NODES {
+        nodos = [];
         errores.agregarError("Sintactico","error: "+yytext,this._$.first_line,(this._$.first_column+1));
         $$ = {nodos:[new Nodo("",    [],    [], Type.COMMENT,     "",    0,             0)]
             ,hijos:[new NodoPadre(getId(),"XML_STRUCTURE","error sintactico","",[])]
@@ -109,7 +91,7 @@ XML_STRUCTURE
 ;
 
 PROLOG
-    : less_than question_mark xml version assign value encoding assign TYPE_ENCODING question_mark greater_than TEXTTAG {
+    : less_than question_mark xml version assign value encoding assign TYPE_ENCODING question_mark greater_than OPCION_TEXTO_ETIQUETA {
         $$ = {hijos:[
             new NodoHijo(getId(),"<","PROLOG -> &lt;?xml version = value encoding = TYPE_ENCODING ?&gt;","PROLOG.encoding = TYPE_ENCODING.valor"),
             new NodoHijo(getId(),"?","",""),
@@ -122,10 +104,10 @@ PROLOG
             new NodoPadre(getId(),"TYPE_ENCODING","","",$9.hijos),
             new NodoHijo(getId(),"?","",""),
             new NodoHijo(getId(),">","",""),
-            new NodoPadre(getId(),"TEXTTAG","","",$12.hijos)
+            new NodoPadre(getId(),"OPCION_TEXTO_ETIQUETA","","",$12.hijos),
         ]};
     }
-    | less_than question_mark xml encoding assign TYPE_ENCODING version assign value question_mark greater_than TEXTTAG {
+    | less_than question_mark xml encoding assign TYPE_ENCODING version assign value question_mark greater_than OPCION_TEXTO_ETIQUETA {
         $$ = {hijos:[
             new NodoHijo(getId(),"<","PROLOG -> &lt;?xml version = value encoding = TYPE_ENCODING ?&gt;","PROLOG.encoding = TYPE_ENCODING.valor"),
             new NodoHijo(getId(),"?","",""),
@@ -138,10 +120,10 @@ PROLOG
             new NodoHijo(getId(),"value","",""),
             new NodoHijo(getId(),"?","",""),
             new NodoHijo(getId(),">","",""),
-            new NodoPadre(getId(),"TEXTTAG","","",$12.hijos),
+            new NodoPadre(getId(),"OPCION_TEXTO_ETIQUETA","","",$12.hijos),
         ]};
     }
-    | less_than error greater_than TEXTTAG {
+    | less_than error greater_than  {
         errores.agregarError("Sintactico","error: "+yytext,this._$.first_line,(this._$.first_column+1));
         $$ = {nodos:[new Nodo("",    [],    [], Type.COMMENT,     "",    0,             0)]
             ,hijos:[new NodoPadre(getId(),"PROLOG","error sintactico","",[])]
@@ -150,26 +132,28 @@ PROLOG
 ;
 
 NODES
-    : NODES NODE        {
-        $1.nodos.push($2.nodo);
-        $$ = {nodos:$1.nodos
+    : NODE NODES        {
+        nodos.unshift($1.nodo);
+        $$ = {nodos:nodos
         ,hijos:[
-                new NodoPadre(getId(),"NODES","NODES -> NODES NODE","NODES1.agregar(NODE.valor)<br>NODES.listado = NODES1.listado",$1.hijos),
-                new NodoPadre(getId(),"NODE","","",$2.hijos)
+                new NodoPadre(getId(),"NODE","NODES -> NODE NODES","NODES1.agregar(NODE.valor)<br>NODES.listado = NODES1.listado",$1.hijos),
+                new NodoPadre(getId(),"NODES","","",$2.hijos)
             ]
         };
         }
     | NODE              {
-        $$ = {nodos:[$1.nodo]
+        nodos.push($1.nodo);
+        $$ = {nodos:nodos
             ,hijos:[
-                new NodoPadre(getId(),"NODES","NODES -> NODE","NODES.valor = nuevoListado[NODE.valor]",$1.hijos)
+                new NodoPadre(getId(),"NODE","NODES -> NODE","NODES.valor = nuevoListado[NODE.valor]",$1.hijos)
             ]
         };
         }
 ;
 
 NODE
-    : OPENING_TAG NODES CLOSING_TAG         {        
+    : OPENING_TAG NODES CLOSING_TAG         {
+        nodos = [];
         if($1.identificador === $3.identificador){
             $$ = {nodo:new Nodo($1.identificador, $1.atributos, $2.nodos, Type.DOUBLE_TAG,  $1.textoEtiqueta, @1.first_line, (@1.first_column + 1))
             ,hijos:[
@@ -208,13 +192,7 @@ NODE
             ]
         };
         }
-    | COMMENT                               {
-        $$ = {nodo:new Nodo("",    [],    [], Type.COMMENT,     "",    0,             0),
-            hijos:[]
-        };
-
-        }
-    | less_than error greater_than TEXTTAG {
+    | less_than error greater_than  {
         errores.agregarError("Sintactico","error: "+yytext,this._$.first_line,(this._$.first_column+1));
         $$ = {nodo:new Nodo("",    [],    [], Type.COMMENT,     "",    0,             0)
             ,hijos:[new NodoPadre(getId(),"NODE","error sintactico","",[])]
@@ -228,44 +206,58 @@ NODE
     }
 ;
 
+
+
+OPCION_TEXTO_ETIQUETA : textTag        {
+        $$ = {contenido: $1,
+                hijos:[
+                    new NodoPadre(getId(),$1,"OPCION_TEXTO_ETIQUETA -> textTag","OPCION_TEXTO_ETIQUETA.valor = textTag.valorLexico",[])
+                ]
+            };
+        }
+    | {
+        $$ = {contenido:"",hijos:[new NodoHijo(getId(),"lambda","OPCION_TEXTO_ETIQUETA -> lambda ","")]};
+        }
+;
+
 OPENING_TAG
-    : less_than IDENTIFIER greater_than TEXTTAG             {
+    : less_than IDENTIFIER greater_than  OPCION_TEXTO_ETIQUETA            {
         $$={identificador:$2.contenido
             ,textoEtiqueta:$4.contenido
             ,atributos:[]
             ,hijos:[
-                new NodoHijo(getId(),"<","OPENING_TAG -> < IDENTIFIER > TEXTTAG","OPENING_TAG.info = [IDENTIFIER.valor, TEXTAG.valor, ATTRIBS.listado]"),
+                new NodoHijo(getId(),"<","OPENING_TAG -> < IDENTIFIER > ","OPENING_TAG.info = [IDENTIFIER.valor, TEXTAG.valor, ATTRIBS.listado]"),
                 new NodoPadre(getId(),"IDENTIFIER","","",$2.hijos),
                 new NodoHijo(getId(),">","",""),
-                new NodoPadre(getId(),"TEXTTAG","","",$4.hijos)
+                new NodoPadre(getId(),"OPCION_TEXTO_ETIQUETA","","",$4.hijos)
             ]
         };
 
         }
-    | less_than IDENTIFIER ATTRIBS greater_than TEXTTAG     {        
+    | less_than IDENTIFIER ATTRIBS greater_than  OPCION_TEXTO_ETIQUETA    {        
+        atributos = [];
         $$={identificador:$2.contenido
             ,textoEtiqueta:$5.contenido
             ,atributos:$3.atributos
             ,hijos:[
-                new NodoHijo(getId(),"<","OPENING_TAG -> < IDENTIFIER ATRIBS > TEXTTAG","OPENING_TAG.info = [IDENTIFIER.valor, TEXTAG.valor, ATTRIBS.listado]"),
+                new NodoHijo(getId(),"<","OPENING_TAG -> < IDENTIFIER ATRIBS > OPCION_TEXTO_ETIQUETA","OPENING_TAG.info = [IDENTIFIER.valor, TEXTAG.valor, ATTRIBS.listado]"),
                 new NodoPadre(getId(),"IDENTIFIER","","",$2.hijos),
                 new NodoPadre(getId(),"ATRIBS","","",$3.hijos),
                 new NodoHijo(getId(),">","",""),
-                new NodoPadre(getId(),"TEXTTAG","","",$5.hijos)
+                new NodoPadre(getId(),"OPCION_TEXTO_ETIQUETA","","",$5.hijos)
             ]
         };
         }
 ;
 
 CLOSING_TAG
-    : less_than slash IDENTIFIER greater_than TEXTTAG       {
-        $$ = {identificador:$3.contenido
+    : cierreEtiqueta IDENTIFIER greater_than    OPCION_TEXTO_ETIQUETA    {
+        $$ = {identificador:$2.contenido
                 ,hijos:[
-                    new NodoHijo(getId(),"<","CLOSING_TAG -> < / IDENTIFIER > TEXTTAG","CLOSING_TAG.valor = IDENTIFIER.valor"),
+                    new NodoHijo(getId(),"<","CLOSING_TAG -> < / IDENTIFIER > OPCION_TEXTO_ETIQUETA","CLOSING_TAG.valor = IDENTIFIER.valor"),
                     new NodoHijo(getId(),"/","",""),
-                    new NodoPadre(getId(),"IDENTIFIER","","",$3.hijos),
-                    new NodoHijo(getId(),">","",""),
-                    new NodoPadre(getId(),"TEXTTAG","","",$5.hijos)
+                    new NodoPadre(getId(),"IDENTIFIER","","",$2.hijos),
+                    new NodoHijo(getId(),">","","")
             ]
             };
         }
@@ -275,58 +267,54 @@ CLOSING_TAG
             ,hijos:[new NodoPadre(getId(),"CLOSING_TAG","error sintactico","",[])]
             };
     }
-    | less_than error slash greater_than TEXTTAG {
-        errores.agregarError("Sintactico","error: "+yytext,this._$.first_line,(this._$.first_column+1));
-        $$ = {nodos:new new Nodo("",    [],    [], Type.COMMENT,     "",    0,             0)
-            ,hijos:[new NodoPadre(getId(),"CLOSING_TAG","error sintactico","",[])]
-            };
-    }
 ;
 
 EMPTY_TAG
-    : less_than IDENTIFIER slash greater_than TEXTTAG               {
+    : less_than IDENTIFIER slash greater_than  OPCION_TEXTO_ETIQUETA              {
             $$={identificador:$2.contenido
                 ,textoEtiqueta: $5.contenido
                 ,atributos:[]
                 ,hijos:[
-                    new NodoHijo(getId(),"<","EMPTY_TAG -> < IDENTIFIER / > ","EMPTY_TAG.info = [IDENTIFIER.valor, TEXTAG.valor, ATTRIBS.listado]"),
+                    new NodoHijo(getId(),"<","EMPTY_TAG -> < IDENTIFIER / > OPCION_TEXTO_ETIQUETA","EMPTY_TAG.info = [IDENTIFIER.valor, TEXTAG.valor, ATTRIBS.listado]"),
                     new NodoPadre(getId(),"IDENTIFIER","","",$2.hijos),
                     new NodoHijo(getId(),"/","",""),
                     new NodoHijo(getId(),">","",""),
-                    new NodoPadre(getId(),"TEXTTAG","","",$5.hijos)
+                    new NodoPadre(getId(),"OPCION_TEXTO_ETIQUETA","","",$5.hijos)
                 ]
             };
 
             }
 
-    | less_than IDENTIFIER ATTRIBS slash greater_than TEXTTAG       {
+    | less_than IDENTIFIER ATTRIBS slash greater_than   OPCION_TEXTO_ETIQUETA     {
+        atributos = [];
         $$={identificador:$2.contenido
             ,textoEtiqueta: $6.contenido
             ,atributos: $3.atributos
             ,hijos:[
-                    new NodoHijo(getId(),"<","EMPTY_TAG -> < IDENTIFIER ATRIBS / > TEXTTAG","EMPTY_TAG.info = [IDENTIFIER.valor, TEXTAG.valor, ATTRIBS.listado]"),
+                    new NodoHijo(getId(),"<","EMPTY_TAG -> < IDENTIFIER ATRIBS / > OPCION_TEXTO_ETIQUETA","EMPTY_TAG.info = [IDENTIFIER.valor, TEXTAG.valor, ATTRIBS.listado]"),
                     new NodoPadre(getId(),"IDENTIFIER","","",$2.hijos),
                     new NodoPadre(getId(),"ATRIBS","","",$3.hijos),
                     new NodoHijo(getId(),"/","",""),
                     new NodoHijo(getId(),">","",""),
-                    new NodoPadre(getId(),"TEXTTAG","","",$6.hijos)
+                    new NodoPadre(getId(),"OPCION_TEXTO_ETIQUETA","","",$6.hijos)
                 ]
         };
         }
 ;
 
 ATTRIBS
-    : ATTRIBS ATTRIB            {
-            $1.atributos.push($2.atributo);            
-            $$ = {atributos:$1.atributos
+    : ATTRIB ATTRIBS            {
+            atributos.unshift($1.atributo);
+            $$ = {atributos:atributos
                 ,hijos:[
-                    new NodoPadre(getId(),"ATRIBS","ATRIBS -> ATRIBS ATRIB","ATRIB1.agregar(ATRIB.valor)<br>ATRIBS.listado = ATRIB1.listado",$1.hijos),
-                    new NodoPadre(getId(),"ATRIB","","",$2.hijos)
+                    new NodoPadre(getId(),"ATRIB","ATRIBS -> ATRIB ATRIBS","ATRIB1.agregar(ATRIB.valor)<br>ATRIBS.listado = ATRIB1.listado",$1.hijos),
+                    new NodoPadre(getId(),"ATRIBS","","",$2.hijos)
                 ]
             };
             }
     | ATTRIB                    {
-            $$ = {atributos:[ $1.atributo ], hijos:[ new NodoPadre(getId(),"ATRIB","ATRIBS -> ATRIB","ATRIBS.valor = nuevoListado[ATRIB.valor]",$1.hijos) ] };
+        atributos.push($1.atributo);
+            $$ = {atributos:atributos, hijos:[ new NodoPadre(getId(),"ATRIB","ATRIBS -> ATRIB","ATRIBS.valor = nuevoListado[ATRIB.valor]",$1.hijos) ] };
         }
 ;
 
@@ -343,44 +331,6 @@ ATTRIB
         ;}
 ;
 
-TEXTTAG
-    : TEXT_TAG_CHARS        {
-        $$ = {contenido: $1.contenido,
-                hijos:[
-                    new NodoPadre(getId(),"TEXT_TAG_CHAR","TEXTTAG -> TEXT_TAG_CHARS","TEXTTAG.valor = TEXT_TAG_CHARS.valor",$1.hijos)
-                ]
-            };
-        }
-    |                       {
-        $$ = {contenido:"",hijos:[new NodoHijo(getId(),"lambda","TEXTTAG -> lambda ","")]};
-        }
-;
-
-TEXT_TAG_CHARS
-    : TEXT_TAG_CHARS TEXT_TAG_CHAR      {
-        $$ = {contenido: $1.contenido + $2.contenido,
-        hijos:[
-            new NodoPadre(getId(),"TEXT_TAG_CHAR","TEXT_TAG_CHARS -> TEXT_TAG_CHARS TEXT_TAG_CHAR","TEXT_TAG_CHARS.valor = TEXT_TAG_CHARS.valor + TEXT_TAG_CHAR.valor",[$1.hijos]),
-            new NodoPadre(getId(),"TEXT_TAG_CHARS","","",$1.hijos)
-        ]};
-        }
-    | TEXT_TAG_CHAR {
-        $$ = {contenido:$1.contenido,
-            hijos:[
-                new NodoPadre(getId(),"TEXT_TAG_CHAR","TEXT_TAG_CHARS -> TEXT_TAG_CHAR","TEXT_TAG_CHARS.valor = TEXT_TAG_CHAR.valor",[$1.hijos])
-            ]
-        };
-        }
-;
-
-TEXT_TAG_CHAR
-    : lt                {$$ = {contenido:"<"            ,hijos:new NodoHijo(getId(),$1,"TEXT_TAG_CHAR -> "+$1,"TEXT_TAG_CHAR.valor = "+$1+".lexicoValor")};}
-    | gt                {$$ = {contenido:">"            ,hijos:new NodoHijo(getId(),$1,"TEXT_TAG_CHAR -> "+$1,"TEXT_TAG_CHAR.valor = "+$1+".lexicoValor")};}
-    | amp               {$$ = {contenido:"&"            ,hijos:new NodoHijo(getId(),$1,"TEXT_TAG_CHAR -> "+$1,"TEXT_TAG_CHAR.valor = "+$1+".lexicoValor")};}
-    | apos              {$$ = {contenido:"'"            ,hijos:new NodoHijo(getId(),$1,"TEXT_TAG_CHAR -> "+$1,"TEXT_TAG_CHAR.valor = "+$1+".lexicoValor")};}
-    | quot              {$$ = {contenido:"\""           ,hijos:new NodoHijo(getId(),$1,"TEXT_TAG_CHAR -> "+$1,"TEXT_TAG_CHAR.valor = "+$1+".lexicoValor")};}
-    | textTag           {$$ = {contenido:$1.trim()      ,hijos:new NodoHijo(getId(),$1,"TEXT_TAG_CHAR -> "+$1,"TEXT_TAG_CHAR.valor = "+$1+".lexicoValor")};}
-;
 
 IDENTIFIER
     : identifier        {$$ = {contenido:$1             ,hijos:[new NodoHijo(getId(),$1,"IDENTIFIER -> identifier","IDENTIFIER.valor = identifier.lexicoValor")]};}
@@ -389,9 +339,6 @@ IDENTIFIER
     | encoding          {$$ = {contenido:$1             ,hijos:[new NodoHijo(getId(),$1,"IDENTIFIER -> encoding"  ,"IDENTIFIER.valor = encoding.lexicoValor")]};}
 ;
 
-COMMENT
-    : less_than exclamation_mark doble_guion textComment doble_guion greater_than
-;
 
 TYPE_ENCODING
     : utf               {$$ = {contenido:$1             ,hijos:[new NodoHijo(getId(),$1,"TYPE_ENCODING -> "+$1,"TYPE_ENCODING.valor = uft.lexicoValor")]};}
